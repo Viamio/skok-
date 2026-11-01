@@ -1,0 +1,12 @@
+{
+  "name": "skok-na-muzeum",
+  "version": "0.3.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node server/launch.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

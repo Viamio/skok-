@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SKOK – kooperacyjny napad</title>
+<link rel="stylesheet" href="/css/style.css">
+<script type="importmap">
+{ "imports": {
+  "three": "/vendor/three/three.module.js",
+  "three/addons/": "/vendor/three/addons/"
+} }
+</script>
+</head>
+<body>
+
+<!-- EKRAN 1: start -->
+<section id="screen-start" class="screen menu-bg active">
+  <div class="menu-box">
+    <h1 class="logo">SKOK</h1>
+    <p class="tagline">Kooperacyjny napad dla 4–5 osób · wersja: <span id="ver-name">…</span></p>
+    <div id="update-box" class="update-box">
+      <button id="btn-update-check" class="btn small">Sprawdź aktualizacje</button>
+      <span id="update-msg" class="update-msg"></span>
+      <button id="btn-update-go" class="btn small primary hidden">Aktualizuj teraz</button>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="host">Mam ekipę / zakładam</button>
+      <button class="tab" data-tab="join">Dołączam do pokoju</button>
+    </div>
+
+    <form id="form-host" class="panel tab-panel active" autocomplete="off">
+      <label>Twój nick<input name="nick" maxlength="16" required></label>
+      <label>Nazwa ekipy<input name="crew" maxlength="24" required></label>
+      <label>Hasło ekipy<input name="pass" type="password" required></label>
+      <div class="row">
+        <button type="submit" name="mode" value="login" class="btn primary">Zaloguj ekipę</button>
+        <button type="submit" name="mode" value="create" class="btn">Załóż nową ekipę</button>
+      </div>
+      <p class="hint">Postęp ekipy (pieniądze, ulepszenia) zapisuje się na serwerze pod nazwą i hasłem ekipy.</p>
+    </form>
+
+    <form id="form-join" class="panel tab-panel" autocomplete="off">
+      <label>Twój nick<input name="nick" maxlength="16" required></label>
+      <label>Kod pokoju<input name="code" maxlength="4" class="code-input" required></label>
+      <div class="row"><button type="submit" class="btn primary">Dołącz</button></div>
+      <p class="hint">Kod pokoju dostaniesz od osoby, która zalogowała ekipę.</p>
+    </form>
+  </div>
+</section>
+
+<!-- EKRAN 2: lobby -->
+<section id="screen-lobby" class="screen menu-bg">
+  <div class="lobby">
+    <header class="lobby-head">
+      <div>
+        <div class="label">Ekipa</div>
+        <div id="lobby-crew" class="crew-name"></div>
+      </div>
+      <div class="room-code-box">
+        <div class="label">Kod pokoju – podaj znajomym</div>
+        <div id="lobby-code" class="room-code" title="Kliknij, aby skopiować"></div>
+      </div>
+      <button id="btn-leave" class="btn small">Wyjdź</button>
+    </header>
+
+    <div class="lobby-grid">
+      <div class="col">
+        <h2>Wybierz postać</h2>
+        <div id="role-list" class="role-list"></div>
+      </div>
+      <div class="col">
+        <h2>Skład</h2>
+        <ul id="player-list" class="player-list"></ul>
+
+        <h2>Cel</h2>
+        <div class="target">
+          <div class="target-name">First National Bank</div>
+          <div class="target-desc">Bank w biały dzień. Podjeżdżacie furgonetką, wchodzicie jako klienci, a potem maski w górę. Skarbiec na zapleczu.</div>
+        </div>
+
+        <h2>Trudność</h2>
+        <div id="diff-list" class="diff-list"></div>
+
+        <div class="row lobby-actions">
+          <button id="btn-ready" class="btn">Gotowy</button>
+          <button id="btn-start" class="btn primary">Zaczynamy napad</button>
+        </div>
+        <p id="lobby-hint" class="hint"></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- EKRAN 3: gra -->
+<section id="screen-game" class="screen">
+  <div id="game-canvas"></div>
+  <div id="hud">
+    <div class="hud-tl">
+      <div class="hud-crew"><span id="hud-crew"></span> · pokój <b id="hud-code"></b></div>
+      <div id="hud-target" class="hud-target">First National Bank</div>
+      <ul id="hud-obj" class="hud-obj"></ul>
+    </div>
+    <div id="hud-phase" class="hud-phase casing"></div>
+    <div id="hud-prompt" class="hud-prompt hidden"><div id="prompt-text"></div><div class="prompt-track"><div id="prompt-bar"></div></div></div>
+    <div id="hud-me" class="hud-me"></div>
+    <div id="hud-log" class="hud-log"></div>
+    <ul id="hud-team" class="hud-team"></ul>
+    <div id="hud-stance" class="hud-stance">Chód</div>
+    <div class="crosshair"></div>
+    <div id="hud-click" class="hud-click hidden">Kliknij w grę, żeby sterować kamerą myszką</div>
+    <div class="hud-keys">
+      <span><kbd>WASD</kbd> ruch</span><span class="tps-only"><kbd>mysz</kbd> rozglądanie</span><span><kbd>Shift</kbd> bieg</span><span><kbd>C</kbd> skradanie</span>
+      <span><kbd>G</kbd> maska</span><span><kbd>E</kbd> akcja</span><span><kbd>Q</kbd> zastrasz</span><span><kbd>B</kbd> rzuć worek</span>
+      <span><kbd>F</kbd>/<kbd>V</kbd> ping</span><span><kbd>T</kbd> widok</span><span><kbd>Esc</kbd> menu</span>
+    </div>
+    <div id="hud-net" class="hud-net"></div>
+  </div>
+  <div id="pause" class="pause hidden">
+    <div class="pause-box">
+      <h2>Pauza</h2>
+      <p class="hint">Gra toczy się dalej – to tylko menu. Klawisz <kbd>T</kbd> zmienia widok: zza pleców / z góry.</p>
+      <label class="check"><input type="checkbox" id="opt-shadows" checked> Cienie (wyłącz, jeśli gra się tnie)</label>
+      <div class="row">
+        <button id="btn-resume" class="btn primary">Wróć do gry</button>
+        <button id="btn-tolobby" class="btn">Wróć ekipą do lobby (host)</button>
+        <button id="btn-quit" class="btn">Wyjdź z pokoju</button>
+      </div>
+    </div>
+  </div>
+  <div id="results" class="results hidden">
+    <div class="results-box">
+      <h2 id="res-title"></h2>
+      <p id="res-reason" class="hint"></p>
+      <table id="res-table" class="res-table"></table>
+      <h3>Portfele</h3>
+      <ul id="res-wallets" class="res-wallets"></ul>
+      <div class="row"><button id="btn-res-lobby" class="btn primary">Wróć do lobby</button></div>
+      <p id="res-hint" class="hint">Pieniądze wydacie na ulepszenia w kolejnym etapie gry.</p>
+    </div>
+  </div>
+  <div id="loading" class="loading hidden">Wchodzimy do budynku…</div>
+</section>
+
+<div id="toast" class="toast"></div>
+
+<script type="module" src="/js/main.js"></script>
+</body>
+</html>
