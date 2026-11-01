@@ -78,5 +78,5 @@ Jeśli gra się tnie: Esc → wyłącz cienie, albo przejdź na widok izometrycz
 
 ## Licencje zasobów
 - three.js – licencja MIT (`public/vendor/three/LICENSE`).
-- Modele `Soldier.glb` (gracze) i `Xbot.glb` (klienci, strażnicy) – z przykładów three.js (postacie i animacje z Adobe Mixamo). Modele tymczasowe, do podmiany.
+- Modele `Soldier.glb` (gracze), `Xbot.glb` (źródło animacji), `Woman.glb` (Michelle, Adobe Mixamo) i `Man.glb` (avatar Ready Player Me) – z przykładów three.js.
 - Tekstura marmuru i tło menu – grafiki dostarczone przez autorów gry.

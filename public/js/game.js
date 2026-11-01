@@ -39,6 +39,79 @@ function icon(name) {
   return s;
 }
 
+// Szara kopia tekstury – pozwala przemalować ubranie na dowolny kolor z zachowaniem faktury.
+const grayCache = new Map();
+function grayTexture(tex) {
+  if (!tex?.image) return null;
+  if (grayCache.has(tex)) return grayCache.get(tex);
+  const img = tex.image, w = img.width, h = img.height;
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+  const d = g.getImageData(0, 0, w, h), a = d.data;
+  let sum = 0; for (let i = 0; i < a.length; i += 4) sum += 0.3 * a[i] + 0.59 * a[i + 1] + 0.11 * a[i + 2];
+  const k = 200 / Math.max(20, sum / (a.length / 4));
+  for (let i = 0; i < a.length; i += 4) { const l = Math.min(255, (0.3 * a[i] + 0.59 * a[i + 1] + 0.11 * a[i + 2]) * k); a[i] = a[i + 1] = a[i + 2] = l; }
+  g.putImageData(d, 0, 0);
+  const t = new THREE.CanvasTexture(c);
+  t.flipY = tex.flipY; t.colorSpace = THREE.SRGBColorSpace; t.wrapS = tex.wrapS; t.wrapT = tex.wrapT;
+  grayCache.set(tex, t);
+  return t;
+}
+
+// Przenoszenie animacji między szkieletami o różnych pozach spoczynkowych (w przestrzeni świata).
+// 1) ustawiamy kości celu w tej samej pozie co źródło (dopasowanie kierunków kości),
+// 2) dla każdej klatki: obrót_świata_celu = obrót_świata_źródła · (spocz_źródła)⁻¹ · spocz_celu.
+function retargetWorld(srcGltf, tgtGltf, mapName, clipNames, fps = 30) {
+  const src = SkeletonUtils.clone(srcGltf.scene), tgt = SkeletonUtils.clone(tgtGltf.scene);
+  const bonesOf = (root) => { const out = []; root.traverse((o) => { if (o.isBone) out.push(o); }); return out; };
+  const tBones = bonesOf(tgt).filter((b) => src.getObjectByName(mapName(b.name)));
+  const sOf = new Map(tBones.map((b) => [b, src.getObjectByName(mapName(b.name))]));
+  src.updateMatrixWorld(true); tgt.updateMatrixWorld(true);
+  const wq = (o) => o.getWorldQuaternion(new THREE.Quaternion());
+  const wp = (o) => o.getWorldPosition(new THREE.Vector3());
+  const firstChild = (b) => b.children.find((c) => c.isBone);
+  // 1) dopasowanie pozy spoczynkowej celu do źródła
+  for (const b of tBones) {
+    const c = firstChild(b), sb = sOf.get(b), sc = sb && firstChild(sb);
+    if (!c || !sc) continue;
+    tgt.updateMatrixWorld(true);
+    const dT = wp(c).sub(wp(b)).normalize(), dS = wp(sc).sub(wp(sb)).normalize();
+    if (dT.lengthSq() < 0.5 || dS.lengthSq() < 0.5) continue;
+    const fix = new THREE.Quaternion().setFromUnitVectors(dT, dS);
+    const newWorld = fix.multiply(wq(b));
+    const parentW = b.parent ? wq(b.parent) : new THREE.Quaternion();
+    b.quaternion.copy(parentW.invert().multiply(newWorld));
+  }
+  tgt.updateMatrixWorld(true);
+  const restS = new Map(), restT = new Map(), parentRestT = new Map();
+  for (const b of tBones) { restS.set(b, wq(sOf.get(b))); restT.set(b, wq(b)); parentRestT.set(b, b.parent ? wq(b.parent) : new THREE.Quaternion()); }
+  const tSet = new Set(tBones);
+  const out = [];
+  for (const clipName of clipNames) {
+    const clip = srcGltf.animations.find((c) => c.name === clipName);
+    if (!clip) continue;
+    const mixer = new THREE.AnimationMixer(src);
+    const action = mixer.clipAction(clip); action.play();
+    const n = Math.max(2, Math.round(clip.duration * fps) + 1);
+    const times = new Float32Array(n), vals = new Map(tBones.map((b) => [b, new Float32Array(n * 4)]));
+    for (let i = 0; i < n; i++) {
+      const t = Math.min(clip.duration, i / fps); times[i] = t;
+      mixer.setTime(t); src.updateMatrixWorld(true);
+      const worldT = new Map();
+      for (const b of tBones) { // kolejność traverse = od rodzica do dziecka
+        const w = wq(sOf.get(b)).multiply(restS.get(b).clone().invert()).multiply(restT.get(b));
+        worldT.set(b, w);
+        const pw = tSet.has(b.parent) ? worldT.get(b.parent) : parentRestT.get(b);
+        const local = pw.clone().invert().multiply(w);
+        local.toArray(vals.get(b), i * 4);
+      }
+    }
+    mixer.stopAllAction();
+    out.push(new THREE.AnimationClip(clipName, clip.duration, tBones.map((b) => new THREE.QuaternionKeyframeTrack(b.name + '.quaternion', times, vals.get(b)))));
+  }
+  return out;
+}
+
 // Doczepia obiekt (wymiary w metrach) do kości – kompensuje skalę szkieletu Mixamo.
 function attach(bone, obj) {
   const s = new THREE.Vector3(); bone.getWorldScale(s);
@@ -62,14 +135,19 @@ class Character {
     this.model.traverse((m) => {
       if (!m.isMesh) return;
       m.castShadow = true; m.receiveShadow = true;
+      m.frustumCulled = false;
       m.material = m.material.clone();
+      if (o.hide?.includes(m.name)) { m.visible = false; return; }
+      const re = o.recolor?.[m.name];
+      if (re) { const gt = grayTexture(m.material.map); if (gt) m.material.map = gt; m.material.color.set(re); return; }
       if (tint && (!o.tintOnly || m.name === o.tintOnly)) m.material.color.copy(tint);
       else if (tint) m.material.color.lerp(tint, 0.25);
     });
+    if (o.scale) this.model.scale.multiplyScalar(o.scale);
     this.holder.add(this.model);
     this.model.updateMatrixWorld(true);
     const bone = (n) => this.model.getObjectByName(n);
-    this.head = bone('mixamorigHead'); this.spine = bone('mixamorigSpine2');
+    this.head = bone('mixamorigHead') || bone('Head'); this.spine = bone('mixamorigSpine2') || bone('Spine2');
     if (o.cap && this.head) {
       const capMat = new THREE.MeshStandardMaterial({ color: '#141c30', roughness: 0.6 });
       const cap = new THREE.Group();
@@ -84,7 +162,8 @@ class Character {
       this.label = textSprite(o.nick, o.color); this.label.position.y = 2.15; this.root.add(this.label);
     }
     this.mixer = new THREE.AnimationMixer(this.model);
-    const clip = (...names) => gltf.animations.find((a) => names.includes(a.name));
+    const anims = o.clips || gltf.animations;
+    const clip = (...names) => anims.find((a) => names.includes(a.name));
     this.actions = {
       idle: this.mixer.clipAction(clip('Idle', 'idle')), walk: this.mixer.clipAction(clip('Walk', 'walk')), run: this.mixer.clipAction(clip('Run', 'run')),
     };
@@ -188,8 +267,11 @@ export class Game {
     this.tpsCam = new THREE.PerspectiveCamera(62, aspect, 0.05, 150);
     this.camOffset = new THREE.Vector3(Math.cos(CAM_ELEV) / Math.SQRT2, Math.sin(CAM_ELEV), Math.cos(CAM_ELEV) / Math.SQRT2).multiplyScalar(CAM_DIST);
 
-    const [marble, soldier, xbot] = await Promise.all([new THREE.TextureLoader().loadAsync('/assets/marble_tile.jpg'), loadModel('Soldier'), loadModel('Xbot')]);
-    this.marble = marble; this.soldier = soldier; this.xbot = xbot;
+    const [marble, soldier, xbot, woman, man] = await Promise.all([new THREE.TextureLoader().loadAsync('/assets/marble_tile.jpg'),
+      loadModel('Soldier'), loadModel('Xbot'), loadModel('Woman'), loadModel('Man')]);
+    this.marble = marble; this.soldier = soldier; this.xbot = xbot; this.woman = woman; this.man = man;
+    this.clipsWoman = retargetWorld(xbot, woman, (n) => n, ['idle', 'walk', 'run']);
+    this.clipsMan = retargetWorld(xbot, man, (n) => 'mixamorig' + n, ['idle', 'walk', 'run']);
     this.applyMode();
 
     for (const p of msg.players) this.addChar(p);
@@ -224,8 +306,26 @@ export class Game {
   }
 
   addNpc(n) {
-    const tint = n.kind === 'guard' ? '#2a3a66' : n.color;
-    const c = new Character(this.xbot, { id: n.id, npc: true, kind: n.kind, tint, tintOnly: 'Beta_Surface', cap: n.kind === 'guard', x: -100, z: -100 });
+    const PANTS = ['#2b3a55', '#3a3a3a', '#4a3b2a', '#1f2430', '#5a5040'];
+    const SHOES = ['#1a1a1a', '#3a2a1e', '#d8d8d8'];
+    const pick = (arr) => arr[n.id % arr.length];
+    let model = this.man, clips = this.clipsMan, recolor = null, hide = ['Wolf3D_Headwear'], scale = 1, cap = false;
+    if (n.kind === 'guard') {
+      recolor = { Wolf3D_Outfit_Top: '#24345a', Wolf3D_Outfit_Bottom: '#1a1f2c', Wolf3D_Outfit_Footwear: '#111111' }; cap = true;
+    } else if (n.kind === 'manager') {
+      recolor = { Wolf3D_Outfit_Top: '#2a2a30', Wolf3D_Outfit_Bottom: '#2a2a30', Wolf3D_Outfit_Footwear: '#120c08' };
+    } else if (n.kind === 'teller' && n.id % 2 === 1) {
+      model = this.woman; clips = this.clipsWoman;
+    } else if (n.kind === 'teller') {
+      recolor = { Wolf3D_Outfit_Top: '#f1efe8', Wolf3D_Outfit_Bottom: '#2b2b30' }; hide.push('Wolf3D_Beard');
+    } else if (n.id % 2 === 0) {
+      model = this.woman; clips = this.clipsWoman; scale = 0.97 + (n.id % 5) * 0.015;
+    } else {
+      recolor = { Wolf3D_Outfit_Top: n.color, Wolf3D_Outfit_Bottom: pick(PANTS), Wolf3D_Outfit_Footwear: pick(SHOES) };
+      if (n.id % 4 === 1) hide.push('Wolf3D_Beard');
+      scale = 0.95 + (n.id % 7) * 0.012;
+    }
+    const c = new Character(model, { id: n.id, npc: true, kind: n.kind, clips, recolor, hide, scale, cap, x: -100, z: -100 });
     this.scene.add(c.root); c.root.visible = false;
     this.npcs.set(n.id, c);
   }

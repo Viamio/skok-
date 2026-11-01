@@ -4,7 +4,7 @@ import {
 } from '../shared/sim.js';
 
 const ST = { calm: 0, panic: 1, down: 2, tied: 3, flee: 4, alert: 5, calling: 6, surrender: 7, escaped: 8 };
-const CIV_COLORS = ['#8a3b3b', '#3b5a8a', '#4f7a45', '#8a7a3b', '#6b4a7a', '#3b7a78', '#9a6a4a', '#5a5a5a', '#a85a6a'];
+const CIV_COLORS = ['#9a3434', '#3b5a8a', '#4f7a45', '#c9a24a', '#6b4a7a', '#2f7a78', '#b8743c', '#d8d4cc', '#a85a6a', '#e0c9a6', '#3a3a3a'];
 const rnd = (a, b) => a + Math.random() * (b - a);
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 const angDiff = (a, b) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
